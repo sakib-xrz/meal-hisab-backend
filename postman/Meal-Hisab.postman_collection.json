@@ -1,0 +1,1542 @@
+{
+  "info": {
+    "_postman_id": "4f7335af-f5a2-452e-912d-6982f14fe13d",
+    "name": "Meal Hisab",
+    "description": "Postman collection for the Meal Hisab multi-tenant backend.\n\n**Auth**\n- Phone + password login\n- Bearer token at collection level (`{{accessToken}}`)\n\n**Tenant identification**\n- Every mess-scoped endpoint requires header: `X-MessID: {{messId}}`\n- Mess id is **not** sent in the URL — only in the `X-MessID` header\n- The collection pre-request script auto-attaches this header for tenant routes under `/messes/...` (excluding list/create)\n- Run **Create Mess** first — it saves `{{messId}}` automatically\n- Use the **Tenant Identification** folder to verify guard behaviour (400/404 cases)\n\n**One mess per user**\n- A user may belong to only one mess at a time (OWNER, MANAGER, or MEMBER).\n- Leave the current mess (`POST /messes/leave`) before creating or joining another.\n- Owners must transfer ownership before leaving.\n- Super admins are exempt from the one-mess rule.\n\n**Endpoint map (tenant routes)**\n- Mess: `/messes/current`, `/messes/stats`\n- Members: `/messes/members`, `/messes/leave`, `/messes/transfer-ownership`, `/messes/users`\n- Meals: `/messes/meals`, `/messes/meals/bulk`, `/messes/meals/:mealId`\n- Bazaar: `/messes/bazaar`, `/messes/bazaar/:bazaarId`\n- Payments: `/messes/payments`, `/messes/payments/:paymentId`\n- Expenses: `/messes/expenses`, `/messes/expenses/:expenseId`\n- Reports: `/messes/reports/meal-rate`, `/messes/reports/members`, `/messes/reports/member-ledger/:memberId`\n- Monthly closings: `/messes/monthly-closings`, `/messes/monthly-closings/:closingId`\n\n**Workflow**\n1. Register or Login\n2. Create Mess → sets `{{messId}}`\n3. Call tenant endpoints (Member, Meals, Bazaar, Payments, etc.)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "35194269"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201 Created', () => {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Response has user and accessToken', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.data).to.be.an('object');",
+                  "    pm.expect(json.data).to.have.property('user');",
+                  "    pm.expect(json.data).to.have.property('accessToken').that.is.a('string').and.is.not.empty;",
+                  "});",
+                  "",
+                  "// Save token + user to collection variables for downstream requests",
+                  "if (pm.response.code === 201) {",
+                  "    const { data } = pm.response.json();",
+                  "    pm.collectionVariables.set('accessToken', data.accessToken);",
+                  "    pm.collectionVariables.set('userId', data.user.id);",
+                  "    pm.collectionVariables.set('userName', data.user.name);",
+                  "    pm.collectionVariables.set('userPhone', data.user.phone);",
+                  "    console.log('[Register] accessToken saved to collection variables');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"{{testName}}\",\n    \"phone\": \"{{testPhone}}\",\n    \"password\": \"{{testPassword}}\",\n    \"avatarUrl\": \"{{avatarUrl}}\"\n}"
+            },
+            "url": {
+              "raw": "{{apiBaseUrl}}/auth/register",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Create a new user account with phone + password.\n\n**Body**\n- `name` (string, required) — 2..80 chars\n- `phone` (string, required) — Bangladeshi mobile (e.g. `017XXXXXXXX`, `+88017XXXXXXXX`, `88017XXXXXXXX`)\n- `password` (string, required) — 6..72 chars\n- `avatarUrl` (string, optional) — valid URL\n\nOn success, saves `accessToken`, `userId`, `userName`, `userPhone` into collection variables automatically."
+          },
+          "response": []
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has user and accessToken', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.data).to.be.an('object');",
+                  "    pm.expect(json.data).to.have.property('user');",
+                  "    pm.expect(json.data).to.have.property('accessToken').that.is.a('string').and.is.not.empty;",
+                  "});",
+                  "",
+                  "// Post-login script: persist token + user to collection variables",
+                  "if (pm.response.code === 200) {",
+                  "    const { data } = pm.response.json();",
+                  "    pm.collectionVariables.set('accessToken', data.accessToken);",
+                  "    pm.collectionVariables.set('userId', data.user.id);",
+                  "    pm.collectionVariables.set('userName', data.user.name);",
+                  "    pm.collectionVariables.set('userPhone', data.user.phone);",
+                  "",
+                  "    if (data.user.memberships.length > 0) {",
+                  "        pm.collectionVariables.set('messId', data.user.memberships[0].messId);",
+                  "        console.log('messId saved:', data.user.memberships[0].messId);",
+                  "    } else {",
+                  "        pm.collectionVariables.unset('messId');",
+                  "        console.log('No membership found. Old messId cleared.');",
+                  "    }",
+                  "    console.log('[Login] accessToken saved to collection variables');",
+                  "}"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"phone\": \"{{testPhone}}\",\n    \"password\": \"{{testPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{apiBaseUrl}}/auth/login",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Authenticate a user with phone + password.\n\n**Body**\n- `phone` (string, required) — Bangladeshi mobile\n- `password` (string, required)\n\nOn success, saves `accessToken`, `userId`, `userName`, `userPhone` into collection variables automatically."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Me",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has the authenticated user', () => {",
+                  "    const json = pm.response.json();",
+                  "",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.data).to.have.property('id');",
+                  "    pm.expect(json.data).to.have.property('phone');",
+                  "    pm.expect(json.data).to.have.property('memberships').that.is.an('array');",
+                  "    pm.expect(json.data).to.have.property('isSuperAdmin');",
+                  "",
+                  "    const { data } = json;",
+                  "",
+                  "    if (data.memberships.length > 0) {",
+                  "        pm.collectionVariables.set('messId', data.memberships[0].messId);",
+                  "        console.log('messId saved:', data.memberships[0].messId);",
+                  "    } else {",
+                  "        pm.collectionVariables.unset('messId');",
+                  "        console.log('No membership found. Old messId cleared.');",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiBaseUrl}}/auth/me",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Get the currently authenticated user, including their mess memberships and any messes they own.\n\nRequires `Authorization: Bearer {{accessToken}}` (inherited from collection)."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains the updated user', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.data).to.have.property('id');",
+                  "    pm.expect(json.data).to.have.property('name');",
+                  "});",
+                  "",
+                  "// Keep cached userName in sync for downstream requests",
+                  "if (pm.response.code === 200) {",
+                  "    const { data } = pm.response.json();",
+                  "    if (data && data.name) {",
+                  "        pm.collectionVariables.set('userName', data.name);",
+                  "        console.log('[UpdateProfile] userName synced to collection variables');",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"{{updatedName}}\"\n}"
+            },
+            "url": {
+              "raw": "{{apiBaseUrl}}/auth/profile",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "profile"
+              ]
+            },
+            "description": "Update non-file profile fields for the authenticated user.\n\n**Body** (at least one field required)\n- `name` (string, optional) — 2..80 chars\n\nAvatar uploads are handled by `PATCH /auth/avatar` (multipart) — `avatarUrl` is intentionally not accepted here."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Avatar",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains a non-null avatarUrl', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.data).to.have.property('id');",
+                  "    pm.expect(json.data).to.have.property('avatarUrl').that.is.a('string').and.is.not.empty;",
+                  "});",
+                  "",
+                  "// Cache the latest avatar URL so other tooling can reference it",
+                  "if (pm.response.code === 200) {",
+                  "    const { data } = pm.response.json();",
+                  "    if (data && data.avatarUrl) {",
+                  "        pm.collectionVariables.set('avatarUrl', data.avatarUrl);",
+                  "        console.log('[UpdateAvatar] avatarUrl cached to collection variables');",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "avatar",
+                  "type": "file",
+                  "description": "Image file to upload as the user's avatar. Allowed: jpeg, jpg, png, gif, webp, heic, heif, ico. Max size: 30 MB.",
+                  "value": null
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{apiBaseUrl}}/auth/avatar",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "avatar"
+              ]
+            },
+            "description": "Upload a new avatar for the authenticated user.\n\n**Request**\n- Content-Type: `multipart/form-data`\n- Field `avatar` (file, required) — image (jpeg, jpg, png, gif, webp, heic, heif, ico), up to 30 MB. HEIC/HEIF inputs are auto-converted to JPEG before upload.\n\n**Behavior**\n- Uploads the file to Cloudflare R2 under the `avatars/` folder.\n- Creates an `Asset` row tied to the user (`type = AVATAR`).\n- Atomically swaps the previous avatar `Asset` for the new one and best-effort deletes the old R2 object.\n\n**Note:** Do **not** send a manual `Content-Type` header — Postman generates the correct `multipart/form-data; boundary=...` automatically when you attach a file."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Avatar",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response avatarUrl is null', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.data).to.have.property('id');",
+                  "    pm.expect(json.data.avatarUrl).to.satisfy((v) => v === null || v === undefined);",
+                  "});",
+                  "",
+                  "// Clear cached avatar URL",
+                  "if (pm.response.code === 200) {",
+                  "    pm.collectionVariables.set('avatarUrl', '');",
+                  "    console.log('[DeleteAvatar] avatarUrl cleared from collection variables');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiBaseUrl}}/auth/avatar",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "avatar"
+              ]
+            },
+            "description": "Remove the authenticated user's avatar.\n\n**Behavior**\n- Clears `User.avatarUrl` and `User.avatarAssetId`.\n- Deletes the underlying `Asset` row.\n- Best-effort deletes the object from Cloudflare R2 (failures are logged but do not fail the request)."
+          },
+          "response": []
+        },
+        {
+          "name": "Change Password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains user id', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.data).to.have.property('id');",
+                  "});",
+                  "",
+                  "// Rotate password vars so Login keeps working",
+                  "if (pm.response.code === 200) {",
+                  "    const oldPwd = pm.collectionVariables.get('testPassword');",
+                  "    const newPwd = pm.collectionVariables.get('newPassword');",
+                  "    pm.collectionVariables.set('testPassword', newPwd);",
+                  "    pm.collectionVariables.set('newPassword', oldPwd);",
+                  "    console.log('[ChangePassword] testPassword and newPassword swapped for next runs');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"currentPassword\": \"{{testPassword}}\",\n    \"newPassword\": \"{{newPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{apiBaseUrl}}/auth/change-password",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "change-password"
+              ]
+            },
+            "description": "Change the authenticated user's password.\n\n**Body**\n- `currentPassword` (string, required)\n- `newPassword` (string, required, 6..72, must differ from current)\n\nOn success, the collection swaps `testPassword` ↔ `newPassword` so the next `Login` works without manual edits."
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "// Clear cached auth state",
+                  "pm.collectionVariables.set('accessToken', '');",
+                  "pm.collectionVariables.set('userId', '');",
+                  "pm.collectionVariables.set('userName', '');",
+                  "pm.collectionVariables.set('userPhone', '');",
+                  "console.log('[Logout] cleared accessToken and cached user fields');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiBaseUrl}}/auth/logout",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Logout the current session. With pure-JWT auth, the server simply clears any auth cookie; the client must also drop its in-memory/storage token. This request clears all cached auth state in the collection."
+          },
+          "response": []
+        }
+      ],
+      "description": "All authentication-related endpoints for the Meal Hisab backend."
+    },
+    {
+      "name": "Mess",
+      "item": [
+        {
+          "name": "Create Mess",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201 Created', () => {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Response contains the created mess', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.data).to.have.property('id').that.is.a('string').and.is.not.empty;",
+                  "    pm.expect(json.data).to.have.property('name');",
+                  "    pm.expect(json.data).to.have.property('phone');",
+                  "    pm.expect(json.data).to.have.property('isActive');",
+                  "});",
+                  "",
+                  "// Cache messId for downstream requests",
+                  "if (pm.response.code === 201) {",
+                  "    const { data } = pm.response.json();",
+                  "    pm.collectionVariables.set('messId', data.id);",
+                  "    pm.collectionVariables.set('messName', data.name);",
+                  "    console.log('[CreateMess] messId saved to collection variables:', data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"{{messName}}\",\n    \"address\": \"{{messAddress}}\",\n    \"phone\": \"{{messPhone}}\"\n}"
+            },
+            "url": {
+              "raw": "{{apiBaseUrl}}/messes",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "messes"
+              ]
+            },
+            "description": "Create a new mess. The authenticated user automatically becomes the owner and is also registered as the first member of the mess.\n\n**One mess per user:** Returns `409 Conflict` if you already belong to another mess. Leave first via **Leave Mess** (Member folder).\n\n**Body**\n- `name` (string, required) — 2..80 chars\n- `address` (string, optional) — up to 255 chars\n- `phone` (string, optional) — Bangladeshi mobile for the mess contact.\n\nOn success, saves `messId` and `messName` into collection variables."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Mess Stats",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains current month stats', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.data).to.have.property('period');",
+                  "    pm.expect(json.data).to.have.property('activeMemberCount');",
+                  "    pm.expect(json.data).to.have.property('totalMeals');",
+                  "    pm.expect(json.data).to.have.property('totalBazaarCost');",
+                  "    pm.expect(json.data).to.have.property('mealRate');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-MessID",
+                "value": "{{messId}}",
+                "description": "Tenant identifier — required for all mess-scoped APIs"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiBaseUrl}}/messes/stats",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "messes",
+                "stats"
+              ]
+            },
+            "description": "**Endpoint**\n- `GET /messes/stats`\n\nQuick current-month summary for the mess dashboard:\n- `activeMemberCount`\n- `totalMeals` (sum of breakfast + lunch + dinner for the month)\n- `totalBazaarCost`\n- `totalExtraExpense`\n- `totalPayments`\n- `mealRate` = `totalBazaarCost / totalMeals` (0 when no meals)\n\nFor frozen monthly reports use the Monthly Closing module.\n\n**Required tenant header**\n- `X-MessID: {{messId}}` — required on every mess-scoped request. Set automatically from collection variables after **Create Mess**."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Current Mess",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains the mess', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.data).to.have.property('id');",
+                  "    pm.expect(json.data).to.have.property('owner');",
+                  "    pm.expect(json.data).to.have.property('activeMemberCount');",
+                  "    pm.expect(json.data).to.have.property('isOwner');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-MessID",
+                "value": "{{messId}}",
+                "description": "Tenant identifier — required for all mess-scoped APIs"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiBaseUrl}}/messes/current",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "messes",
+                "current"
+              ]
+            },
+            "description": "**Endpoint**\n- `GET /messes/current`\n\nFetch a single mess by id, including the owner profile, the active member count, the caller's `isOwner` flag and `myRole`.\n\n**Access**\n- Owner of the mess, OR\n- Any user with an `ACTIVE` membership in the mess.\n\n**Required tenant header**\n- `X-MessID: {{messId}}` — required on every mess-scoped request. Set automatically from collection variables after **Create Mess**."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Current Mess",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains the updated mess', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.data).to.have.property('id');",
+                  "    pm.expect(json.data).to.have.property('name');",
+                  "});",
+                  "",
+                  "// Keep cached messName in sync",
+                  "if (pm.response.code === 200) {",
+                  "    const { data } = pm.response.json();",
+                  "    if (data && data.name) {",
+                  "        pm.collectionVariables.set('messName', data.name);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "X-MessID",
+                "value": "{{messId}}",
+                "description": "Tenant identifier — required for all mess-scoped APIs"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"{{updatedMessName}}\",\n    \"address\": \"{{messAddress}}\",\n    \"phone\": \"{{messPhone}}\",\n    \"isActive\": true\n}"
+            },
+            "url": {
+              "raw": "{{apiBaseUrl}}/messes/current",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "messes",
+                "current"
+              ]
+            },
+            "description": "**Endpoint**\n- `PATCH /messes/current`\n\nUpdate an existing mess.\n\n**Body** (at least one field required)\n- `name` (string, optional)\n- `address` (string | null, optional) — pass `null` to clear\n- `phone` (string | null, optional) — Bangladeshi mobile\n- `isActive` (boolean, optional)\n\n**Access**\n- Mess owner, OR\n- Active member with role `MANAGER`.\n\n**Required tenant header**\n- `X-MessID: {{messId}}` — required on every mess-scoped request. Set automatically from collection variables after **Create Mess**."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Current Mess",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response confirms deletion', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.data).to.have.property('id');",
+                  "});",
+                  "",
+                  "// Clear cached messId",
+                  "if (pm.response.code === 200) {",
+                  "    pm.collectionVariables.set('messId', '');",
+                  "    console.log('[DeleteMess] messId cleared from collection variables');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-MessID",
+                "value": "{{messId}}",
+                "description": "Tenant identifier — required for all mess-scoped APIs"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiBaseUrl}}/messes/current",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "messes",
+                "current"
+              ]
+            },
+            "description": "**Endpoint**\n- `DELETE /messes/current`\n\nHard-delete a mess.\n\nCascade rules on the schema clean up all related rows (members, meals, bazaar entries, expenses, payments, monthly closings).\n\n**Access**\n- Mess owner only — even a `MANAGER` member cannot delete the mess.\n\n**Required tenant header**\n- `X-MessID: {{messId}}` — required on every mess-scoped request. Set automatically from collection variables after **Create Mess**."
+          },
+          "response": []
+        }
+      ],
+      "description": "Mess management endpoints.\n\n**System-level (no X-MessID):**\n- `POST /messes` — Create Mess\n\n**Tenant-level (X-MessID required):**\n- `GET /messes/current` — Get current mess\n- `PATCH /messes/current` — Update current mess\n- `DELETE /messes/current` — Delete current mess\n- `GET /messes/stats` — Stats\n\nMember-related endpoints (leave, transfer ownership, CRUD) live under the **Member** folder.\n\nRun **Create Mess** first to populate `{{messId}}` used by the `X-MessID` header."
+    },
+    {
+      "name": "Member",
+      "item": [
+        {
+          "name": "Add Member",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201 Created', () => {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Response contains the created member', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.data).to.have.property('id').that.is.a('string').and.is.not.empty;",
+                  "    pm.expect(json.data).to.have.property('fullName');",
+                  "    pm.expect(json.data).to.have.property('status');",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const { data } = pm.response.json();",
+                  "    pm.collectionVariables.set('memberId', data.id);",
+                  "    console.log('[AddMember] memberId saved:', data.id);",
+                  "}"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-MessID",
+                "value": "{{messId}}",
+                "description": "Tenant identifier — required for all mess-scoped APIs"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"phone\": \"{{memberPhone}}\",\n    \"roleKey\": \"{{memberRoleKey}}\",\n    \"joiningDate\": \"{{memberJoiningDate}}\" // OPTIONAL\n}"
+            },
+            "url": {
+              "raw": "{{apiBaseUrl}}/messes/members",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "messes",
+                "members"
+              ]
+            },
+            "description": "**Endpoint:** `POST /messes/members`\n\nAdd a member profile to the mess.\n\n**Access:** Owner or Manager only.\n\n**Body**\n- `fullName` (required)\n- `phone` (optional) — auto-links to a platform user when the phone matches an active account\n- `email`, `roomNo`, `joiningDate` (optional)\n- `roleKey` — `MANAGER` or `MEMBER` only (`OWNER` is not allowed on create; use Transfer Ownership)\n\nOn success, saves `{{memberId}}`."
+          },
+          "response": []
+        },
+        {
+          "name": "List Members",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => { pm.response.to.have.status(200); });",
+                  "pm.test('Response is paginated', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data).to.be.an('array');",
+                  "    pm.expect(json.meta).to.have.property('total');",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-MessID",
+                "value": "{{messId}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiBaseUrl}}/messes/members?status=ACTIVE&page=1&limit=10&sort_by=fullName&sort_order=asc",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "messes",
+                "members"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "ACTIVE",
+                  "description": "ACTIVE | INACTIVE | LEFT"
+                },
+                {
+                  "key": "roleKey",
+                  "value": "MEMBER",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "Rahim",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "sort_by",
+                  "value": "fullName"
+                },
+                {
+                  "key": "sort_order",
+                  "value": "asc"
+                }
+              ]
+            },
+            "description": "**Endpoint:** `GET /messes/members`\n\nList members in the current mess. Any active mess member can call this."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Member",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => { pm.response.to.have.status(200); });",
+                  "pm.test('Response contains updated member', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data).to.have.property('fullName');",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "X-MessID",
+                "value": "{{messId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"fullName\": \"{{updatedMemberFullName}}\",\n    \"roleKey\": \"MEMBER\"\n}"
+            },
+            "url": {
+              "raw": "{{apiBaseUrl}}/messes/members/{{memberId}}",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "messes",
+                "members",
+                "{{memberId}}"
+              ]
+            },
+            "description": "**Endpoint:** `PATCH /messes/members/:memberId`\n\nUpdate a member profile or role.\n\n**Access:** Owner or Manager only.\n\n**Body** (at least one field): `fullName`, `phone`, `email`, `roomNo`, `roleKey`, `status`, `joiningDate`, `leavingDate`.\n\nCannot deactivate the mess owner — transfer ownership first."
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Member",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => { pm.response.to.have.status(200); });",
+                  "pm.test('Member marked as left', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data.status).to.eql('LEFT');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-MessID",
+                "value": "{{messId}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiBaseUrl}}/messes/members/{{memberId}}",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "messes",
+                "members",
+                "{{memberId}}"
+              ]
+            },
+            "description": "**Endpoint:** `DELETE /messes/members/:memberId`\n\nRemove a member from the mess (sets status to `LEFT` and revokes app access).\n\n**Access:** Owner or Manager only. Cannot remove the mess owner."
+          },
+          "response": []
+        },
+        {
+          "name": "Transfer Ownership",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => { pm.response.to.have.status(200); });",
+                  "pm.test('Response contains the mess', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data).to.have.property('id');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "X-MessID",
+                "value": "{{messId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"newOwnerMemberId\": \"{{newOwnerMemberId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{apiBaseUrl}}/messes/transfer-ownership",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "messes",
+                "transfer-ownership"
+              ]
+            },
+            "description": "**Endpoint:** `PATCH /messes/transfer-ownership`\n\nTransfer mess ownership to another member.\n\n**Body:** `newOwnerMemberId` (required) — must be an active member with a linked app account.\n\n**Behavior:** New owner gets OWNER role; previous owner becomes MANAGER.\n\n**Access:** Mess owner only."
+          },
+          "response": []
+        },
+        {
+          "name": "Leave Mess",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => { pm.response.to.have.status(200); });",
+                  "pm.test('Response confirms leave', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data).to.have.property('messId');",
+                  "    pm.expect(json.data).to.have.property('leftAt');",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    pm.collectionVariables.set('messId', '');",
+                  "    console.log('[LeaveMess] messId cleared');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-MessID",
+                "value": "{{messId}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiBaseUrl}}/messes/leave",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "messes",
+                "leave"
+              ]
+            },
+            "description": "**Endpoint:** `POST /messes/leave`\n\nLeave the current mess as the authenticated user.\n\nSets `MessUser` to `REMOVED` and linked `Member` to `LEFT`. Owners must transfer ownership first."
+          },
+          "response": []
+        }
+      ],
+      "description": "Member and membership management.\n\n**Member profiles** (`/messes/members`)\n- Add, list, get, update, remove member profiles\n\n**Membership actions**\n- `POST /messes/leave` — leave the mess\n- `PATCH /messes/transfer-ownership` — transfer owner role (`newOwnerMemberId`)\n\n**App access** (`/messes/users`)\n- List, invite, and update platform user access (MessUser)\n\n**Access:** Add/remove/update members and users require Owner or Manager."
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "requests": {},
+        "exec": [
+          "const baseUrl = pm.variables.get('baseUrl') || pm.environment.get('baseUrl');",
+          "const apiVersion = pm.variables.get('apiVersion') || pm.environment.get('apiVersion') || 'v1';",
+          "if (baseUrl) {",
+          "    pm.collectionVariables.set('apiBaseUrl', `${baseUrl.replace(/\\/$/, '')}/api/${apiVersion}`);",
+          "}",
+          "",
+          "// Auto-attach X-MessID for tenant-scoped /messes/... routes (not list/create on /messes)",
+          "const messId = pm.collectionVariables.get('messId') || pm.environment.get('messId');",
+          "const url = pm.request.url ? pm.request.url.toString() : '';",
+          "const pathOnly = url.split('?')[0];",
+          "const isTenantRequest = /\\/messes\\/.+/.test(pathOnly);",
+          "const skipAutoHeader = pm.variables.get('skipTenantHeader') === 'true';",
+          "",
+          "if (isTenantRequest && !skipAutoHeader) {",
+          "    if (!messId) {",
+          "        console.warn('[Tenant] X-MessID not set — run Create Mess first or set {{messId}}');",
+          "    } else {",
+          "        pm.request.headers.upsert({",
+          "            key: 'X-MessID',",
+          "            value: messId,",
+          "            description: 'Tenant identifier — required for all mess-scoped APIs',",
+          "        });",
+          "    }",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "requests": {},
+        "exec": [
+          "// Collection-level test script",
+          "// Common assertions that apply to every request.",
+          "pm.test('Response time is acceptable (< 3s)', () => {",
+          "    pm.expect(pm.response.responseTime).to.be.below(3000);",
+          "});",
+          "",
+          "pm.test('Response has JSON Content-Type', () => {",
+          "    const contentType = pm.response.headers.get('Content-Type') || '';",
+          "    pm.expect(contentType).to.include('application/json');",
+          "});",
+          "",
+          "pm.test('Response body has success flag', () => {",
+          "    const json = pm.response.json();",
+          "    pm.expect(json).to.have.property('success');",
+          "});"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000",
+      "description": "Base URL of the backend (no trailing slash). Override via environment."
+    },
+    {
+      "key": "apiVersion",
+      "value": "v1",
+      "description": "API version segment used in the URL."
+    },
+    {
+      "key": "apiBaseUrl",
+      "value": "http://localhost:8000/api/v1",
+      "description": "Computed at request time from baseUrl + apiVersion."
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "description": "JWT access token saved automatically after Register/Login."
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "description": "Authenticated user's id, saved after Register/Login."
+    },
+    {
+      "key": "userName",
+      "value": "",
+      "description": "Authenticated user's name, saved after Register/Login."
+    },
+    {
+      "key": "userPhone",
+      "value": "",
+      "description": "Authenticated user's phone, saved after Register/Login."
+    },
+    {
+      "key": "testName",
+      "value": "Sakib Ahmed",
+      "description": "Sample full name used for the Register request."
+    },
+    {
+      "key": "testPhone",
+      "value": "01711223344",
+      "description": "Sample Bangladeshi phone number used for Register/Login."
+    },
+    {
+      "key": "testPassword",
+      "value": "Pa$$word123",
+      "description": "Sample password used for Register/Login."
+    },
+    {
+      "key": "newPassword",
+      "value": "Pa$$word456",
+      "description": "Sample new password used for Change Password."
+    },
+    {
+      "key": "avatarUrl",
+      "value": "https://placehold.co/256x256.png",
+      "description": "Sample avatar URL used for Register/Update Profile."
+    },
+    {
+      "key": "updatedName",
+      "value": "Sakib Updated",
+      "description": "Sample updated name used for Update Profile."
+    },
+    {
+      "key": "messId",
+      "value": "",
+      "description": "Active mess tenant id. Saved after Create Mess. Sent as the X-MessID header on every mess-scoped API request."
+    },
+    {
+      "key": "messName",
+      "value": "Bashundhara Bachelor Mess",
+      "description": "Sample mess name used for Create / Update Mess."
+    },
+    {
+      "key": "updatedMessName",
+      "value": "Bashundhara Bachelor Mess (Renamed)",
+      "description": "Sample updated mess name used for Update Mess."
+    },
+    {
+      "key": "messAddress",
+      "value": "Block C, Road 5, Bashundhara R/A, Dhaka",
+      "description": "Sample mess address used for Create / Update Mess."
+    },
+    {
+      "key": "messPhoneLegacy",
+      "value": "BDT",
+      "disabled": true,
+      "description": "ISO-style currency code (3..8 chars). Defaults to BDT on the server."
+    },
+    {
+      "key": "newOwnerMemberId",
+      "value": "",
+      "description": "Member id used as the target for Transfer Ownership. Must be an active member with a linked app account."
+    },
+    {
+      "key": "memberId",
+      "value": "",
+      "description": "Active member id, saved automatically after Create Member."
+    },
+    {
+      "key": "memberFullName",
+      "value": "Rahim Uddin",
+      "description": "Sample full name used for Create / Update Member."
+    },
+    {
+      "key": "updatedMemberFullName",
+      "value": "Rahim Uddin (Updated)",
+      "description": "Sample updated full name used for Update Member."
+    },
+    {
+      "key": "memberPhone",
+      "value": "01811223344",
+      "description": "Sample Bangladeshi phone used for Create Member. Must be unique within the mess."
+    },
+    {
+      "key": "memberEmail",
+      "value": "rahim@example.com",
+      "description": "Sample email used for Create / Update Member."
+    },
+    {
+      "key": "memberRoomNo",
+      "value": "B-203",
+      "description": "Sample room number used for Create / Update Member."
+    },
+    {
+      "key": "memberJoiningDate",
+      "value": "2026-05-01",
+      "description": "Sample ISO date used as joining date for Create Member."
+    },
+    {
+      "key": "mealId",
+      "value": "",
+      "description": "Active meal entry id, saved automatically after Create Meal."
+    },
+    {
+      "key": "mealDate",
+      "value": "2026-05-24",
+      "description": "Sample meal date (YYYY-MM-DD) used for Create Meal."
+    },
+    {
+      "key": "mealFromDate",
+      "value": "2026-05-01",
+      "description": "Sample lower-bound date (YYYY-MM-DD) used in List Meals."
+    },
+    {
+      "key": "mealToDate",
+      "value": "2026-05-31",
+      "description": "Sample upper-bound date (YYYY-MM-DD) used in List Meals."
+    },
+    {
+      "key": "bazaarId",
+      "value": "",
+      "description": "Active bazaar entry id, saved automatically after Create Bazaar."
+    },
+    {
+      "key": "bazaarDate",
+      "value": "2026-05-24",
+      "description": "Sample bazaar date (YYYY-MM-DD) used for Create Bazaar."
+    },
+    {
+      "key": "bazaarFromDate",
+      "value": "2026-05-01",
+      "description": "Sample lower-bound date (YYYY-MM-DD) used in List Bazaar."
+    },
+    {
+      "key": "bazaarToDate",
+      "value": "2026-05-31",
+      "description": "Sample upper-bound date (YYYY-MM-DD) used in List Bazaar."
+    },
+    {
+      "key": "paymentId",
+      "value": "",
+      "description": "Active payment id, saved automatically after Create Payment."
+    },
+    {
+      "key": "paymentDate",
+      "value": "2026-05-01",
+      "description": "Sample payment date (YYYY-MM-DD) used for Create Payment."
+    },
+    {
+      "key": "paymentFromDate",
+      "value": "2026-05-01",
+      "description": "Sample lower-bound date (YYYY-MM-DD) used in List Payments."
+    },
+    {
+      "key": "paymentToDate",
+      "value": "2026-05-31",
+      "description": "Sample upper-bound date (YYYY-MM-DD) used in List Payments."
+    },
+    {
+      "key": "paymentMethod",
+      "value": "BKASH",
+      "description": "Payment method: CASH | BKASH | NAGAD | BANK | OTHER."
+    },
+    {
+      "key": "paymentType",
+      "value": "DEPOSIT",
+      "description": "Payment type: DEPOSIT | REFUND | ADJUSTMENT."
+    },
+    {
+      "key": "paymentReferenceNo",
+      "value": "TXN123456",
+      "description": "Sample transaction / reference number for Create Payment."
+    },
+    {
+      "key": "expenseId",
+      "value": "",
+      "description": "Active expense id, saved after Create Expense."
+    },
+    {
+      "key": "expenseDate",
+      "value": "2026-05-05",
+      "description": "Sample expense date (YYYY-MM-DD)."
+    },
+    {
+      "key": "expenseFromDate",
+      "value": "2026-05-01",
+      "description": "Lower bound for List Expenses / reports."
+    },
+    {
+      "key": "expenseToDate",
+      "value": "2026-05-31",
+      "description": "Upper bound for List Expenses."
+    },
+    {
+      "key": "expenseCategory",
+      "value": "WIFI",
+      "description": "HOUSE_RENT | GAS | ELECTRICITY | WIFI | WATER | CLEANER | MAINTENANCE | OTHER"
+    },
+    {
+      "key": "expenseTitle",
+      "value": "Monthly Wi-Fi Bill",
+      "description": "Sample expense title."
+    },
+    {
+      "key": "memberId2",
+      "value": "",
+      "description": "Second member id for CUSTOM split examples."
+    },
+    {
+      "key": "reportFromDate",
+      "value": "2026-05-01",
+      "description": "Report range start (YYYY-MM-DD)."
+    },
+    {
+      "key": "reportToDate",
+      "value": "2026-05-31",
+      "description": "Report range end (YYYY-MM-DD)."
+    },
+    {
+      "key": "closingId",
+      "value": "",
+      "description": "Active monthly closing id, saved after Close Month."
+    },
+    {
+      "key": "closingYear",
+      "value": "2026",
+      "description": "Calendar year for monthly closing."
+    },
+    {
+      "key": "closingMonth",
+      "value": "5",
+      "description": "Calendar month (1-12) for monthly closing."
+    },
+    {
+      "key": "closingFromDate",
+      "value": "2026-05-01",
+      "description": "Period start for monthly closing (must fall in year/month)."
+    },
+    {
+      "key": "closingToDate",
+      "value": "2026-05-31",
+      "description": "Period end for monthly closing."
+    },
+    {
+      "key": "messPhone",
+      "value": "+8801711223344",
+      "description": "Optional mess contact phone in E.164 format."
+    },
+    {
+      "key": "memberRoleKey",
+      "value": "MEMBER",
+      "description": "Tenant role key when adding/inviting members: MANAGER | MEMBER (OWNER not allowed on create)."
+    },
+    {
+      "key": "messUserId",
+      "value": "",
+      "description": "Active MessUser id, saved after Invite Mess User."
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+### dotenv ###
+.env
+.env.production
+
+### node ###
+node_modules
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+### dist ###
+dist
+
+### generated ###
+generated/prisma
