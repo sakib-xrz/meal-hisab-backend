@@ -16,6 +16,7 @@ The Super Admin can:
 - View system users
 - Manage subscriptions or plans in the future
 - Access tenant data when needed
+- Belong to multiple messes at the same time (exempt from the one-mess-per-user rule)
 
 ## 2. Tenant Level
 
@@ -23,7 +24,7 @@ Each mess or hostel is a tenant.
 
 Inside each mess, users can manage:
 
-- Members
+- Members (add, update, remove, leave, transfer ownership)
 - Meals
 - Bazaar costs
 - Deposits
@@ -84,7 +85,7 @@ Every tenant-level API request must include this header.
 Example:
 
 ```
-GET /api/v1/members
+GET /api/v1/messes/members
 Authorization: Bearer <access_token>
 X-MessID: cmess123
 
@@ -112,15 +113,17 @@ Cursor and developers must follow these rules strictly:
 4. Every tenant-level table must include messId.
 5. Every tenant-level API must require X-MessID.
 6. Normal users can only access messes where they have active membership.
-7. Roles and permissions are tenant-aware.
-8. Manager of Mess A is not automatically Manager of Mess B.
-9. Super Admin can bypass tenant restrictions only in system-level routes.
-10. No query should return tenant data without filtering by messId.
-11. Use Decimal for money, not Float.
-12. Use Date fields for mealDate, bazaarDate, paymentDate, and expenseDate.
-13. Monthly reports must be generated per messId.
-14. Prefer repository/service functions that automatically receive messId.
-15. Cross-tenant data leakage must be impossible.
+7. A normal user can belong to only one mess at a time (see Membership Business Rules).
+8. Roles and permissions are tenant-aware.
+9. Manager of Mess A is not automatically Manager of Mess B.
+10. Super Admin can bypass tenant restrictions only in system-level routes.
+11. Super Admin is exempt from the one-mess-per-user rule and may access multiple messes.
+12. No query should return tenant data without filtering by messId.
+13. Use Decimal for money, not Float.
+14. Use Date fields for mealDate, bazaarDate, paymentDate, and expenseDate.
+15. Monthly reports must be generated per messId.
+16. Prefer repository/service functions that automatically receive messId.
+17. Cross-tenant data leakage must be impossible.
 
 ```
 
@@ -227,23 +230,26 @@ thrownewError("Invalid Bangladeshi phone number");
 
 Roles are tenant-specific.
 
-A user can have different roles in different messes.
+For **normal users**, membership is limited to **one mess at a time**. A user cannot be OWNER, MANAGER, or MEMBER in two messes simultaneously.
 
-Example:
+Example (normal user):
 
 ```
 Sakib
- ├── Mess A: Manager
- └── Mess B: Member
-
+ └── Mess A: Manager   ← only one current mess membership allowed
 ```
+
+If Sakib wants to join Mess B or create a new mess, he must **leave Mess A first**.
+
+**Super Admin** is exempt from this rule and may access multiple messes for support or system administration.
 
 This means:
 
 ```
 Manager of Mess A ≠ Manager of Mess B
-
 ```
+
+That rule still applies across separate messes over time — but a normal user cannot hold both roles at the same time.
 
 Roles should be stored in a tenant-aware role table.
 
@@ -311,7 +317,11 @@ MemberMonthlyBill
 
 Used only for authentication.
 
-One user can belong to one or many messes through `MessUser`.
+A normal user can have **at most one current mess membership** through `MessUser` (status `ACTIVE` or `INVITED`).
+
+Historical memberships (`REMOVED`, `INACTIVE`) are kept for audit/history and do not block joining another mess later.
+
+Super Admin users are exempt from the one-mess rule.
 
 ---
 
@@ -341,7 +351,75 @@ This table defines:
 - Which user belongs to which mess
 - What role the user has inside that mess
 - Whether the user is linked with a mess member profile
-- Whether the membership is active
+- Whether the membership is active, invited, or historical
+
+### Membership Status
+
+```
+ACTIVE    → current membership; user can access the mess
+INVITED   → pending membership; counts as a current membership
+INACTIVE  → historical; ignored for one-mess rule
+REMOVED   → historical; ignored for one-mess rule (used when user leaves or is removed)
+```
+
+### One Mess Per User Rule
+
+A normal user may have **only one** `MessUser` row with status `ACTIVE` or `INVITED` at any time, across the entire platform.
+
+Enforced at:
+
+1. **Database level** — partial unique index on `userId` where status is `ACTIVE` or `INVITED`
+2. **Application level** — validation before create mess, invite user, auto-link member by phone, or reactivate membership
+
+Blocked actions return `409 Conflict` with a clear message:
+
+```
+You are already a member of another mess. Leave your current mess before joining or creating a new one.
+```
+
+When an admin adds or invites a user who is already in another mess, the API blocks with an admin-facing message instead of allowing an override.
+
+Super Admin users bypass the one-mess rule.
+
+### Leave Mess
+
+A user can leave their current mess via:
+
+```
+POST /api/v1/messes/leave
+X-MessID: <mess-id>
+```
+
+Behavior:
+
+- Sets `MessUser.status` to `REMOVED`
+- Sets linked `Member.status` to `LEFT` with `leavingDate`
+- After leaving, the user may create or join another mess
+
+Restrictions:
+
+- **Owner cannot leave** until ownership is transferred
+- Owner must use transfer ownership first, then leave if needed
+
+### Transfer Ownership
+
+```
+PATCH /api/v1/messes/transfer-ownership
+X-MessID: <mess-id>
+
+{
+  "newOwnerMemberId": "<member-id>"
+}
+```
+
+Rules:
+
+- Only the current mess owner can transfer ownership
+- Target must be an **active member** in the same mess
+- Target must have a **linked app account** (`MessUser` with `ACTIVE` status)
+- Previous owner is demoted to `MANAGER`
+- New owner receives the `OWNER` role
+- `OWNER` cannot be assigned during member create or invite — only through transfer ownership
 
 ---
 
@@ -367,7 +445,53 @@ Example:
 User = Login account
 Member = Business profile inside a mess
 MessUser = Connects User with Mess and optional Member
+```
 
+### Member Status
+
+```
+ACTIVE
+INACTIVE
+LEFT
+```
+
+### Member Management Rules
+
+- **Add member** — Owner or Manager only
+- **Update member** — Owner or Manager only
+- **Remove member** — Owner or Manager only; sets member to `LEFT` and revokes app access
+- **Assign role on create** — only `MANAGER` or `MEMBER`; `OWNER` is not allowed on create
+- **Assign OWNER** — only via transfer ownership
+- **Remove owner** — not allowed; transfer ownership first
+- **Auto-link by phone** — when creating a member with a phone that matches an active platform user, the system links `MessUser` automatically (blocked if that user already belongs to another mess)
+
+### Member Module APIs
+
+All routes require `Authorization` and `X-MessID`.
+
+**Member profiles**
+
+```
+POST   /api/v1/messes/members              Add member
+GET    /api/v1/messes/members              List members
+GET    /api/v1/messes/members/:memberId    Get member
+PATCH  /api/v1/messes/members/:memberId    Update member
+DELETE /api/v1/messes/members/:memberId    Remove member
+```
+
+**Membership actions**
+
+```
+POST   /api/v1/messes/leave                Leave current mess (self-service)
+PATCH  /api/v1/messes/transfer-ownership   Transfer ownership (owner only)
+```
+
+**App access (MessUser)**
+
+```
+GET    /api/v1/messes/users                List mess users
+POST   /api/v1/messes/users/invite         Invite platform user by phone
+PATCH  /api/v1/messes/users/:messUserId    Update user access / role / status
 ```
 
 ---
