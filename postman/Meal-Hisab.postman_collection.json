@@ -1,6 +1,6 @@
 {
   "info": {
-    "_postman_id": "4f7335af-f5a2-452e-912d-6982f14fe13d",
+    "_postman_id": "8f28a85c-3e86-449a-94e7-fb14f2e11ee7",
     "name": "Meal Hisab",
     "description": "Postman collection for the Meal Hisab multi-tenant backend.\n\n**Auth**\n- Phone + password login\n- Bearer token at collection level (`{{accessToken}}`)\n\n**Tenant identification**\n- Every mess-scoped endpoint requires header: `X-MessID: {{messId}}`\n- Mess id is **not** sent in the URL — only in the `X-MessID` header\n- The collection pre-request script auto-attaches this header for tenant routes under `/messes/...` (excluding list/create)\n- Run **Create Mess** first — it saves `{{messId}}` automatically\n- Use the **Tenant Identification** folder to verify guard behaviour (400/404 cases)\n\n**One mess per user**\n- A user may belong to only one mess at a time (OWNER, MANAGER, or MEMBER).\n- Leave the current mess (`POST /messes/leave`) before creating or joining another.\n- Owners must transfer ownership before leaving.\n- Super admins are exempt from the one-mess rule.\n\n**Endpoint map (tenant routes)**\n- Mess: `/messes/current`, `/messes/stats`\n- Members: `/messes/members`, `/messes/leave`, `/messes/transfer-ownership`\n- Meals: `/messes/meals/daily`, `/messes/meals/summary`, `/messes/meals`, `/messes/meals/:mealEntryId`\n- Bazaar: `/messes/bazaar`, `/messes/bazaar/:bazaarId`\n- Payments: `/messes/payments`, `/messes/payments/:paymentId`\n- Expenses: `/messes/expenses`, `/messes/expenses/:expenseId`\n- Reports: `/messes/reports/meal-rate`, `/messes/reports/members`, `/messes/reports/member-ledger/:memberId`\n- Monthly closings: `/messes/monthly-closings`, `/messes/monthly-closings/:closingId`\n\n**Workflow**\n1. Register or Login\n2. Create Mess → sets `{{messId}}`\n3. Call tenant endpoints (Member, Meals, Bazaar, Payments, etc.)",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
@@ -1245,7 +1245,6 @@
             {
               "listen": "test",
               "script": {
-                "type": "text/javascript",
                 "exec": [
                   "pm.test('Status code is 200 OK', () => { pm.response.to.have.status(200); });",
                   "pm.test('Response contains saved daily sheet', () => {",
@@ -1259,7 +1258,17 @@
                   "        pm.collectionVariables.set('mealId', savedRow.mealEntryId);",
                   "    }",
                   "}"
-                ]
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [],
+                "type": "text/javascript"
               }
             }
           ],
@@ -1281,7 +1290,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"date\": \"{{mealDate}}\",\n    \"entries\": [\n        {\n            \"memberId\": \"{{memberId}}\",\n            \"breakfast\": 1,\n            \"lunch\": 1,\n            \"dinner\": 0.5,\n            \"note\": null\n        }\n    ]\n}"
+              "raw": "{\n    \"date\": \"{{mealDate}}\",\n    \"entries\": [\n        {\n            \"memberId\": \"{{memberId}}\",\n            \"breakfast\": 1,\n            \"lunch\": 1,\n            \"dinner\": 0,\n            \"note\": \"Dinner baire korse\"\n        }\n    ]\n}"
             },
             "url": {
               "raw": "{{apiBaseUrl}}/messes/meals/daily",
@@ -1586,11 +1595,6 @@
       "description": "Sample updated name used for Update Profile."
     },
     {
-      "key": "messId",
-      "value": "",
-      "description": "Active mess tenant id. Saved after Create Mess. Sent as the X-MessID header on every mess-scoped API request."
-    },
-    {
       "key": "messName",
       "value": "Bashundhara Bachelor Mess",
       "description": "Sample mess name used for Create / Update Mess."
@@ -1805,6 +1809,10 @@
       "key": "memberRoleKey",
       "value": "MEMBER",
       "description": "Tenant role key when adding members: MANAGER | MEMBER (OWNER not allowed on create)."
+    },
+    {
+      "key": "messId",
+      "value": ""
     }
   ]
 }
