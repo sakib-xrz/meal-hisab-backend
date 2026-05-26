@@ -62,7 +62,7 @@ export const assertUserHasNoCurrentMembership = async (
 
 /**
  * Same as {@link assertUserHasNoCurrentMembership} but with admin-facing copy
- * when blocking invite / auto-link flows for another user.
+ * when blocking auto-link flows for another user.
  */
 export const assertTargetUserHasNoCurrentMembership = async (
   targetUserId: string,

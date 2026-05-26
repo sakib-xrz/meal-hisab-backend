@@ -3,6 +3,7 @@ import express from 'express';
 import authenticate from '@/middlewares/auth';
 import resolveTenant from '@/middlewares/tenant.middleware';
 import validateRequest from '@/middlewares/validate-request';
+import { MealRoutes } from '@/modules/meal/meal.routes';
 import { MemberRoutes } from '@/modules/member/member.routes';
 
 import MessController from './mess.controller';
@@ -23,6 +24,7 @@ const tenantRouter = express.Router();
 tenantRouter.use(resolveTenant);
 
 tenantRouter.use('/members', MemberRoutes);
+tenantRouter.use('/meals', MealRoutes);
 
 tenantRouter.get('/current', MessController.getById);
 tenantRouter.patch(

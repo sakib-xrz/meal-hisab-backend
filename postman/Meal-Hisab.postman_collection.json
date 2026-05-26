@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "4f7335af-f5a2-452e-912d-6982f14fe13d",
     "name": "Meal Hisab",
-    "description": "Postman collection for the Meal Hisab multi-tenant backend.\n\n**Auth**\n- Phone + password login\n- Bearer token at collection level (`{{accessToken}}`)\n\n**Tenant identification**\n- Every mess-scoped endpoint requires header: `X-MessID: {{messId}}`\n- Mess id is **not** sent in the URL — only in the `X-MessID` header\n- The collection pre-request script auto-attaches this header for tenant routes under `/messes/...` (excluding list/create)\n- Run **Create Mess** first — it saves `{{messId}}` automatically\n- Use the **Tenant Identification** folder to verify guard behaviour (400/404 cases)\n\n**One mess per user**\n- A user may belong to only one mess at a time (OWNER, MANAGER, or MEMBER).\n- Leave the current mess (`POST /messes/leave`) before creating or joining another.\n- Owners must transfer ownership before leaving.\n- Super admins are exempt from the one-mess rule.\n\n**Endpoint map (tenant routes)**\n- Mess: `/messes/current`, `/messes/stats`\n- Members: `/messes/members`, `/messes/leave`, `/messes/transfer-ownership`, `/messes/users`\n- Meals: `/messes/meals`, `/messes/meals/bulk`, `/messes/meals/:mealId`\n- Bazaar: `/messes/bazaar`, `/messes/bazaar/:bazaarId`\n- Payments: `/messes/payments`, `/messes/payments/:paymentId`\n- Expenses: `/messes/expenses`, `/messes/expenses/:expenseId`\n- Reports: `/messes/reports/meal-rate`, `/messes/reports/members`, `/messes/reports/member-ledger/:memberId`\n- Monthly closings: `/messes/monthly-closings`, `/messes/monthly-closings/:closingId`\n\n**Workflow**\n1. Register or Login\n2. Create Mess → sets `{{messId}}`\n3. Call tenant endpoints (Member, Meals, Bazaar, Payments, etc.)",
+    "description": "Postman collection for the Meal Hisab multi-tenant backend.\n\n**Auth**\n- Phone + password login\n- Bearer token at collection level (`{{accessToken}}`)\n\n**Tenant identification**\n- Every mess-scoped endpoint requires header: `X-MessID: {{messId}}`\n- Mess id is **not** sent in the URL — only in the `X-MessID` header\n- The collection pre-request script auto-attaches this header for tenant routes under `/messes/...` (excluding list/create)\n- Run **Create Mess** first — it saves `{{messId}}` automatically\n- Use the **Tenant Identification** folder to verify guard behaviour (400/404 cases)\n\n**One mess per user**\n- A user may belong to only one mess at a time (OWNER, MANAGER, or MEMBER).\n- Leave the current mess (`POST /messes/leave`) before creating or joining another.\n- Owners must transfer ownership before leaving.\n- Super admins are exempt from the one-mess rule.\n\n**Endpoint map (tenant routes)**\n- Mess: `/messes/current`, `/messes/stats`\n- Members: `/messes/members`, `/messes/leave`, `/messes/transfer-ownership`\n- Meals: `/messes/meals/daily`, `/messes/meals/summary`, `/messes/meals`, `/messes/meals/:mealEntryId`\n- Bazaar: `/messes/bazaar`, `/messes/bazaar/:bazaarId`\n- Payments: `/messes/payments`, `/messes/payments/:paymentId`\n- Expenses: `/messes/expenses`, `/messes/expenses/:expenseId`\n- Reports: `/messes/reports/meal-rate`, `/messes/reports/members`, `/messes/reports/member-ledger/:memberId`\n- Monthly closings: `/messes/monthly-closings`, `/messes/monthly-closings/:closingId`\n\n**Workflow**\n1. Register or Login\n2. Create Mess → sets `{{messId}}`\n3. Call tenant endpoints (Member, Meals, Bazaar, Payments, etc.)",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_exporter_id": "35194269"
   },
@@ -1174,7 +1174,280 @@
           "response": []
         }
       ],
-      "description": "Member and membership management.\n\n**Member profiles** (`/messes/members`)\n- Add, list, get, update, remove member profiles\n\n**Membership actions**\n- `POST /messes/leave` — leave the mess\n- `PATCH /messes/transfer-ownership` — transfer owner role (`newOwnerMemberId`)\n\n**App access** (`/messes/users`)\n- List, invite, and update platform user access (MessUser)\n\n**Access:** Add/remove/update members and users require Owner or Manager."
+      "description": "Member and membership management.\n\n**Member profiles** (`/messes/members`)\n- Add, list, update, remove member profiles\n\n**Membership actions**\n- `POST /messes/leave` — leave the mess\n- `PATCH /messes/transfer-ownership` — transfer owner role (`newOwnerMemberId`)\n\n**Access:** Add/remove/update members require Owner or Manager."
+    },
+    {
+      "name": "Meals",
+      "item": [
+        {
+          "name": "Get Daily Meal Sheet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => { pm.response.to.have.status(200); });",
+                  "pm.test('Response contains daily sheet', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data).to.have.property('date');",
+                  "    pm.expect(json.data).to.have.property('members').that.is.an('array');",
+                  "    pm.expect(json.data).to.have.property('summary');",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    const { data } = pm.response.json();",
+                  "    const firstEntry = data.members.find((row) => row.mealEntryId);",
+                  "    if (firstEntry?.mealEntryId) {",
+                  "        pm.collectionVariables.set('mealId', firstEntry.mealEntryId);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-MessID",
+                "value": "{{messId}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiBaseUrl}}/messes/meals/daily?date={{mealDate}}",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "messes",
+                "meals",
+                "daily"
+              ],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "{{mealDate}}",
+                  "description": "YYYY-MM-DD. Defaults to today (UTC) when omitted."
+                }
+              ]
+            },
+            "description": "**Endpoint:** `GET /messes/meals/daily?date=YYYY-MM-DD`\n\nReturns the daily meal sheet for all ACTIVE members (owner/manager) or only the caller's linked member profile (member role).\n\n**Response:** `date`, `members[]` with meal counts, and `summary` totals.\n\n**Access:** Any active mess member."
+          },
+          "response": []
+        },
+        {
+          "name": "Save Daily Meal Sheet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200 OK', () => { pm.response.to.have.status(200); });",
+                  "pm.test('Response contains saved daily sheet', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data).to.have.property('members').that.is.an('array');",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    const { data } = pm.response.json();",
+                  "    const savedRow = data.members.find((row) => row.memberId === pm.collectionVariables.get('memberId'));",
+                  "    if (savedRow?.mealEntryId) {",
+                  "        pm.collectionVariables.set('mealId', savedRow.mealEntryId);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-MessID",
+                "value": "{{messId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"date\": \"{{mealDate}}\",\n    \"entries\": [\n        {\n            \"memberId\": \"{{memberId}}\",\n            \"breakfast\": 1,\n            \"lunch\": 1,\n            \"dinner\": 0.5,\n            \"note\": null\n        }\n    ]\n}"
+            },
+            "url": {
+              "raw": "{{apiBaseUrl}}/messes/meals/daily",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "messes",
+                "meals",
+                "daily"
+              ]
+            },
+            "description": "**Endpoint:** `PUT /messes/meals/daily`\n\nBulk upsert meal counts for a date. Rows with all zero counts and no note delete any existing entry.\n\n**Access:** Owner or Manager only.\n\n**Body:** `date` (YYYY-MM-DD), `entries[]` with `memberId`, `breakfast`, `lunch`, `dinner`, optional `note`."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Meals Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-MessID",
+                "value": "{{messId}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiBaseUrl}}/messes/meals/summary?from={{mealFromDate}}&to={{mealToDate}}",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "messes",
+                "meals",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "{{mealFromDate}}"
+                },
+                {
+                  "key": "to",
+                  "value": "{{mealToDate}}"
+                }
+              ]
+            },
+            "description": "**Endpoint:** `GET /messes/meals/summary?from=&to=`\n\nPeriod totals with `byMember[]` and `byDate[]` breakdowns.\n\n**Access:** Owner/Manager see all members; Member role sees only their own totals."
+          },
+          "response": []
+        },
+        {
+          "name": "List Meals (Range)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-MessID",
+                "value": "{{messId}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiBaseUrl}}/messes/meals?from={{mealFromDate}}&to={{mealToDate}}&memberId={{memberId}}",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "messes",
+                "meals"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "{{mealFromDate}}"
+                },
+                {
+                  "key": "to",
+                  "value": "{{mealToDate}}"
+                },
+                {
+                  "key": "memberId",
+                  "value": "{{memberId}}",
+                  "description": "Optional for owner/manager. Member role is scoped to their own profile."
+                }
+              ]
+            },
+            "description": "**Endpoint:** `GET /messes/meals?from=&to=&memberId=`\n\nReturns meal entries in a date range without pagination.\n\n**Access:** Owner/Manager can filter by member; Member role sees only their own entries."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Meal Entry",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "X-MessID",
+                "value": "{{messId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"breakfast\": 0.5,\n    \"lunch\": 1,\n    \"dinner\": 1\n}"
+            },
+            "url": {
+              "raw": "{{apiBaseUrl}}/messes/meals/{{mealId}}",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "messes",
+                "meals",
+                "{{mealId}}"
+              ]
+            },
+            "description": "**Endpoint:** `PATCH /messes/meals/:mealEntryId`\n\nUpdate one meal entry. Setting all counts to zero with no note deletes the row.\n\n**Access:** Owner or Manager only."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Meal Entry",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-MessID",
+                "value": "{{messId}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiBaseUrl}}/messes/meals/{{mealId}}",
+              "host": [
+                "{{apiBaseUrl}}"
+              ],
+              "path": [
+                "messes",
+                "meals",
+                "{{mealId}}"
+              ]
+            },
+            "description": "**Endpoint:** `DELETE /messes/meals/:mealEntryId`\n\nDelete a single meal entry.\n\n**Access:** Owner or Manager only."
+          },
+          "response": []
+        }
+      ],
+      "description": "Daily meal tracking for mess members.\n\n**Routes**\n- `GET /messes/meals/daily` — daily sheet\n- `PUT /messes/meals/daily` — bulk upsert\n- `GET /messes/meals/summary` — period totals\n- `GET /messes/meals` — date range list\n- `PATCH/DELETE /messes/meals/:mealEntryId` — single entry corrections\n\n**Access:** Reads for any mess member (member role sees own data only). Writes require Owner or Manager."
     }
   ],
   "auth": {
@@ -1381,7 +1654,7 @@
     {
       "key": "mealId",
       "value": "",
-      "description": "Active meal entry id, saved automatically after Create Meal."
+      "description": "Active meal entry id, saved automatically after Save Daily Meal Sheet or Get Daily Meal Sheet."
     },
     {
       "key": "mealDate",
@@ -1531,12 +1804,7 @@
     {
       "key": "memberRoleKey",
       "value": "MEMBER",
-      "description": "Tenant role key when adding/inviting members: MANAGER | MEMBER (OWNER not allowed on create)."
-    },
-    {
-      "key": "messUserId",
-      "value": "",
-      "description": "Active MessUser id, saved after Invite Mess User."
+      "description": "Tenant role key when adding members: MANAGER | MEMBER (OWNER not allowed on create)."
     }
   ]
 }

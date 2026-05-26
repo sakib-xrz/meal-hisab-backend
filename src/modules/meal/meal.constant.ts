@@ -1,0 +1,5 @@
+export const MEAL_CONSTANTS = {
+  MAX_COUNT_PER_SLOT: 3,
+  MEAL_COUNT_SCALE: 2,
+  MAX_NOTE_LENGTH: 500,
+} as const;
