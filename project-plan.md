@@ -1,4 +1,4 @@
-## **Project progress (vs** `project-plan.md`**)**
+## **Project progress** 
 
 **Rough completion: ~45–50%** — platform foundation, tenant membership, and **Meals are in place**. The core accounting loop (bazaar → meal rate → expenses → payments → monthly closing) is still ahead.
 
