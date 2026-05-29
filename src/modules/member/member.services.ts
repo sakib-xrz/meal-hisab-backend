@@ -146,15 +146,21 @@ const createMember = async (
   const normalizedPhone = normalizeBdPhone(payload.phone);
 
   const existing = await prisma.member.findFirst({
-    where: { 
-      messId, 
+    where: {
+      messId,
       phone: normalizedPhone,
-      NOT: { status: MemberStatus.LEFT } 
-     },
-    select: { id: true },
+    },
+    select: {
+      id: true,
+      status: true,
+      messUsers: {
+        where: { status: MembershipStatus.ACTIVE },
+        select: { id: true },
+      },
+    },
   });
 
-  if (existing) {
+  if (existing && existing.status !== MemberStatus.LEFT && existing.messUsers.length > 0) {
     throw new AppError(
       httpStatus.CONFLICT,
       'A member with this phone number already exists in this mess',
@@ -173,6 +179,24 @@ const createMember = async (
   const roleKey = payload.roleKey ?? MESS_ROLE_KEYS.MEMBER;
 
   const member = await prisma.$transaction(async (tx) => {
+    if (existing) {
+      const rejoined = await tx.member.update({
+        where: { id: existing.id },
+        data: {
+          fullName: user.name,
+          phone: user.phone,
+          status: MemberStatus.ACTIVE,
+          joiningDate: payload.joiningDate ?? new Date(),
+          leavingDate: null,
+        },
+        select: publicMemberSelect,
+      });
+
+      await linkUserToMember(tx, messId, rejoined.id, user.id, roleKey);
+
+      return rejoined;
+    }
+
     const created = await tx.member.create({
       data: {
         messId,
