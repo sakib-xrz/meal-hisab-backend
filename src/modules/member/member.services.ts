@@ -146,7 +146,11 @@ const createMember = async (
   const normalizedPhone = normalizeBdPhone(payload.phone);
 
   const existing = await prisma.member.findFirst({
-    where: { messId, phone: normalizedPhone },
+    where: { 
+      messId, 
+      phone: normalizedPhone,
+      NOT: { status: MemberStatus.LEFT } 
+     },
     select: { id: true },
   });
 
